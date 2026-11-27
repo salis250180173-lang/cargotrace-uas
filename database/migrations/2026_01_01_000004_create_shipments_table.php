@@ -24,15 +24,12 @@ return new class extends Migration
             $table->dateTime('expected_arrival')->nullable();
             $table->dateTime('estimated_arrival')->nullable();
             $table->enum('current_status', [
-                'PENDING',
+                'CREATED',
+                'BOOKED',
                 'PICKED_UP',
                 'IN_TRANSIT',
-                'AT_PORT',
-                'CUSTOMS_CLEARANCE',
-                'OUT_FOR_DELIVERY',
                 'DELIVERED',
-                'CANCELLED',
-            ])->default('PENDING')->index();
+            ])->default('CREATED')->index();
             $table->boolean('is_delayed')->default(false)->index();
             $table->decimal('delay_hours', 8, 2)->default(0);
             $table->enum('delay_severity', ['NONE', 'LOW', 'MEDIUM', 'HIGH'])->default('NONE');
