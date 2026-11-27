@@ -8,12 +8,38 @@ use App\Models\Shipment;
 use App\Models\ShipmentException;
 use App\Services\ShipmentExceptionService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\View\View;
 
 class ShipmentExceptionController extends Controller
 {
     public function __construct(
         protected ShipmentExceptionService $exceptionService
     ) {}
+
+    public function index(Request $request): View
+    {
+        $user = $request->user();
+
+        $query = ShipmentException::with(['shipment.carrier', 'shipment.customer'])
+            ->latest('detected_at');
+
+        if ($user->isCustomer()) {
+            $query->whereHas('shipment', fn ($q) => $q->where('customer_id', $user->id));
+        }
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->input('status'));
+        }
+
+        if ($request->filled('severity')) {
+            $query->where('severity', $request->input('severity'));
+        }
+
+        $exceptions = $query->paginate(15)->withQueryString();
+
+        return view('exceptions.index', compact('exceptions'));
+    }
 
     public function store(StoreShipmentExceptionRequest $request, Shipment $shipment): RedirectResponse
     {
@@ -37,9 +63,6 @@ class ShipmentExceptionController extends Controller
             $validated['notes'] ?? null
         );
 
-        return redirect()
-            ->route('shipments.show', $exception->shipment)
-            ->with('success', 'Status exception berhasil diperbarui.');
+        return back()->with('success', 'Status exception berhasil diperbarui.');
     }
 }
-

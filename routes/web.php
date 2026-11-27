@@ -7,12 +7,13 @@ use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ShipmentController;
 use App\Http\Controllers\ShipmentExceptionController;
 use App\Http\Controllers\TrackingEventController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', fn () => redirect()->route('login'));
+Route::get('/', fn () => auth()->check() ? redirect()->route('dashboard') : redirect()->route('login'));
 
 // ── Authentication ───────────────────────────────────────────
 Route::middleware('guest')->group(function () {
@@ -43,8 +44,9 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('role:customer')
         ->name('customer.dashboard');
 
-    // Shipments (All authenticated roles can view index/show via ShipmentPolicy; Admin & Operator can create/update)
+    // Shipments & Export CSV
     Route::get('/shipments', [ShipmentController::class, 'index'])->name('shipments.index');
+    Route::get('/shipments/export/csv', [ShipmentController::class, 'exportCsv'])->name('shipments.export.csv');
     Route::get('/shipments/create', [ShipmentController::class, 'create'])
         ->middleware('role:admin,operator')
         ->name('shipments.create');
@@ -65,12 +67,14 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('role:admin')
         ->name('shipments.destroy');
 
-    // Tracking Events (Admin & Operator)
+    // Tracking
+    Route::get('/tracking', [TrackingEventController::class, 'index'])->name('tracking.index');
     Route::post('/shipments/{shipment}/tracking-events', [TrackingEventController::class, 'store'])
         ->middleware('role:admin,operator')
         ->name('shipments.tracking-events.store');
 
-    // Shipment Exceptions (Admin & Operator)
+    // Exceptions
+    Route::get('/exceptions', [ShipmentExceptionController::class, 'index'])->name('exceptions.index');
     Route::post('/shipments/{shipment}/exceptions', [ShipmentExceptionController::class, 'store'])
         ->middleware('role:admin,operator')
         ->name('shipments.exceptions.store');
@@ -78,12 +82,15 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('role:admin,operator')
         ->name('exceptions.status.update');
 
-    // Notifications (All authenticated users)
+    // Reports
+    Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
+
+    // Notifications
     Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
     Route::patch('/notifications/{notification}/read', [NotificationController::class, 'markAsRead'])
         ->name('notifications.read');
 
-    // Admin Master Data & Audit Logs
+    // Admin Master Data, Users & Audit Logs
     Route::middleware(['role:admin'])->prefix('admin')->name('admin.')->group(function () {
         Route::resource('carriers', CarrierController::class)->except(['show']);
         Route::resource('locations', LocationController::class)->except(['show']);

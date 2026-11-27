@@ -14,6 +14,7 @@ use App\Services\ShipmentService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ShipmentController extends Controller
 {
@@ -26,11 +27,96 @@ class ShipmentController extends Controller
 
     public function index(Request $request): View
     {
-        $shipments = $this->shipmentService
-            ->queryForUser($request->user())
-            ->paginate(15);
+        $query = $this->shipmentService->queryForUser($request->user());
 
-        return view('shipments.index', compact('shipments'));
+        if ($request->filled('search')) {
+            $search = trim((string) $request->input('search'));
+            $query->where(function ($q) use ($search) {
+                $q->where('shipment_number', 'like', "%{$search}%")
+                    ->orWhere('cargo_type', 'like', "%{$search}%")
+                    ->orWhereHas('customer', fn ($uq) => $uq->where('name', 'like', "%{$search}%"))
+                    ->orWhereHas('carrier', fn ($cq) => $cq->where('name', 'like', "%{$search}%"));
+            });
+        }
+
+        if ($request->filled('status')) {
+            if ($request->input('status') === 'DELAYED') {
+                $query->where('is_delayed', true);
+            } else {
+                $query->where('current_status', $request->input('status'));
+            }
+        }
+
+        if ($request->filled('carrier_id')) {
+            $query->where('carrier_id', $request->input('carrier_id'));
+        }
+
+        $shipments = $query->paginate(15)->withQueryString();
+        $carriers = $this->carrierService->getActive();
+
+        return view('shipments.index', compact('shipments', 'carriers'));
+    }
+
+    public function exportCsv(Request $request): StreamedResponse
+    {
+        $query = $this->shipmentService->queryForUser($request->user());
+
+        if ($request->filled('status')) {
+            if ($request->input('status') === 'DELAYED') {
+                $query->where('is_delayed', true);
+            } else {
+                $query->where('current_status', $request->input('status'));
+            }
+        }
+
+        if ($request->filled('carrier_id')) {
+            $query->where('carrier_id', $request->input('carrier_id'));
+        }
+
+        $shipments = $query->get();
+
+        return response()->streamDownload(function () use ($shipments) {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, [
+                'Shipment No',
+                'Customer',
+                'Carrier',
+                'Origin',
+                'Destination',
+                'Cargo Type',
+                'Weight (kg)',
+                'Shipping Cost',
+                'Currency',
+                'Expected Arrival',
+                'Estimated Arrival',
+                'Status',
+                'Is Delayed',
+                'Delay Severity',
+            ]);
+
+            foreach ($shipments as $s) {
+                fputcsv($handle, [
+                    $s->shipment_number,
+                    $s->customer?->name,
+                    $s->carrier?->name,
+                    $s->originLocation?->name,
+                    $s->destinationLocation?->name,
+                    $s->cargo_type,
+                    $s->weight,
+                    $s->shipping_cost,
+                    $s->currency_code,
+                    $s->expected_arrival?->format('Y-m-d H:i'),
+                    $s->estimated_arrival?->format('Y-m-d H:i'),
+                    $s->current_status,
+                    $s->is_delayed ? 'YES' : 'NO',
+                    $s->delay_severity,
+                ]);
+            }
+
+            fclose($handle);
+        }, 'cargotrace-shipments-' . now()->format('Ymd-His') . '.csv', [
+            'Content-Type' => 'text/csv',
+        ]);
     }
 
     public function create(): View
@@ -41,6 +127,7 @@ class ShipmentController extends Controller
             'customers' => User::where('role', User::ROLE_CUSTOMER)->orderBy('name')->get(),
             'carriers' => $this->carrierService->getActive(),
             'locations' => $this->locationService->getAll(),
+            'currencies' => config('cargotrace.exchangerate.supported_currencies', ['USD', 'EUR', 'SGD', 'AUD', 'IDR']),
         ]);
     }
 
@@ -92,7 +179,15 @@ class ShipmentController extends Controller
             );
         }
 
-        return view('shipments.show', compact('shipment', 'weather', 'convertedCost', 'targetCurrency'));
+        $supportedCurrencies = config('cargotrace.exchangerate.supported_currencies', ['USD', 'EUR', 'SGD', 'AUD', 'IDR']);
+
+        return view('shipments.show', compact(
+            'shipment',
+            'weather',
+            'convertedCost',
+            'targetCurrency',
+            'supportedCurrencies'
+        ));
     }
 
     public function edit(Shipment $shipment): View
@@ -104,6 +199,7 @@ class ShipmentController extends Controller
             'customers' => User::where('role', User::ROLE_CUSTOMER)->orderBy('name')->get(),
             'carriers' => $this->carrierService->getActive(),
             'locations' => $this->locationService->getAll(),
+            'currencies' => config('cargotrace.exchangerate.supported_currencies', ['USD', 'EUR', 'SGD', 'AUD', 'IDR']),
         ]);
     }
 
@@ -140,4 +236,3 @@ class ShipmentController extends Controller
             ->with('success', 'Shipment berhasil dihapus.');
     }
 }
-
