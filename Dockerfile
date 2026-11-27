@@ -6,5 +6,5 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 WORKDIR /app
 COPY . .
 RUN composer install --no-dev --optimize-autoloader
-CMD ["sh", "-c", "php artisan config:clear && php artisan migrate --force && php artisan db:seed --force && php artisan serve --host=0.0.0.0 --port=${PORT:-8080}"]
-
+RUN printf '#!/bin/sh\nphp artisan config:clear\nphp artisan migrate --force\nphp artisan db:seed --force\nexec php -S 0.0.0.0:${PORT:-8080} -t public\n' > /start.sh && chmod +x /start.sh
+CMD ["/start.sh"]
